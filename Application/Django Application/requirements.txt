@@ -79,6 +79,7 @@ pyzmq==26.0.3
 requests==2.32.3
 rsa==4.9
 s3transfer==0.10.2
+scikit-learn==1.5.1
 Send2Trash==1.8.3
 six==1.16.0
 soupsieve==2.5

@@ -2,6 +2,13 @@
 
 A manipulated-face video classification pipeline built in Python and PyTorch, with a Django web app for running predictions. It follows an end-to-end workflow that includes dataset exploration, preprocessing, face extraction from video frames, feature extraction, model training, evaluation, and inference on unseen videos.
 
+## Resume-Style Project Highlights
+
+- Built a Django-based deepfake detection application that accepts uploaded videos, validates input, and runs inference to classify videos as real or fake.
+- Developed an end-to-end PyTorch pipeline for video preprocessing, face extraction, sequence modeling, training, and evaluation using a ResNeXt50 + LSTM architecture.
+- Worked with large-scale manipulation datasets, including FaceForensics++, Celeb-DF, and DFDC, to train and validate a binary classification model.
+- Added inference support with prediction visualization so users can review model output and heatmap-style explanations.
+
 ## Project Summary
 
 The project works with video data from FaceForensics++, Celeb-DF, and DFDC, which contain authentic and manipulated face sequences. The workflow starts with metadata inspection and sample analysis, then moves into face cropping from frames, training a sequence model, and finally running predictions with the saved checkpoint.

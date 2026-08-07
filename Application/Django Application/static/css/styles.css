@@ -242,6 +242,94 @@ canvas {
     padding-bottom: 50px;
 }
 
+.metrics-panel {
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+}
+
+.verdict-card {
+    border: 1px solid transparent;
+}
+
+.verdict-real {
+    background-color: #2e7d32;
+    border-color: #1b5e20;
+}
+
+.verdict-fake {
+    background-color: #c62828;
+    border-color: #8b0000;
+}
+
+.metric-tile {
+    background: linear-gradient(180deg, #f8fafc, #eef2ff);
+    border: 1px solid #e2e8f0;
+    min-height: 118px;
+}
+
+.metrics-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.prediction-source-badge {
+    font-size: 0.9rem;
+    font-weight: 600;
+    border: 1px solid #d1d5db;
+    color: #374151;
+    background: #f8fafc;
+}
+
+.heatmap-frame {
+    max-width: 620px;
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.12), 0 8px 10px rgba(0,0,0,0.08);
+    background: #121212;
+    border: 4px solid #fff;
+}
+
+.heatmap-image {
+    width: 100%;
+    display: block;
+    max-height: 360px;
+    object-fit: contain;
+}
+
+.heatmap-placeholder {
+    height: 300px;
+    color: #888;
+}
+
+.metric-matrix-table td {
+    padding: 0.2rem 0.3rem;
+}
+
+.matrix-grid {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.matrix-row {
+    display: flex;
+    gap: 6px;
+}
+
+.matrix-cell {
+    min-width: 42px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #ffffff;
+    font-weight: 600;
+    text-align: center;
+}
+
 #preprocessed_images {
   white-space: nowrap;
   width: auto;
@@ -315,6 +403,20 @@ canvas {
     overflow-y: hidden;
     box-shadow: 0 0px 9px 2px #ccc;
     margin-bottom: 20px;
+}
+
+@media (max-width: 576px) {
+    .metrics-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .heatmap-frame {
+        max-width: 100%;
+    }
+
+    .heatmap-placeholder {
+        height: 240px;
+    }
 }
 
 .heat-map {

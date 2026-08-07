@@ -22,8 +22,7 @@ from PIL import Image as pImage
 import time
 from django.conf import settings
 from .forms import VideoUploadForm
-import requests
-from datetime import datetime
+
 
 index_template_name = 'index.html'
 predict_template_name = 'predict.html'
@@ -32,10 +31,10 @@ about_template_name = "about.html"
 im_size = 112
 mean=[0.485, 0.456, 0.406]
 std=[0.229, 0.224, 0.225]
-sm = nn.Softmax()
+sm = nn.Softmax(dim=1)
 inv_normalize =  transforms.Normalize(mean=-1*np.divide(mean,std),std=np.divide([1,1,1],std))
 if torch.cuda.is_available():
-    device = 'gpu'
+    device = 'cuda'
 else:
     device = 'cpu'
 
@@ -136,15 +135,13 @@ def im_plot(tensor):
 
 
 def predict(model,img,path = './', video_file_name=""):
-  fmap,logits = model(img.to(device))
-  img = im_convert(img[:,-1,:,:,:], video_file_name)
-  params = list(model.parameters())
-  weight_softmax = model.linear1.weight.detach().cpu().numpy()
-  logits = sm(logits)
-  _,prediction = torch.max(logits,1)
-  confidence = logits[:,int(prediction.item())].item()*100
-  print('confidence of prediction:',logits[:,int(prediction.item())].item()*100)  
-  return [int(prediction.item()),confidence]
+    fmap,logits = model(img.to(device))
+    img = im_convert(img[:,-1,:,:,:], video_file_name)
+    params = list(model.parameters())
+    weight_softmax = model.linear1.weight.detach().cpu().numpy()
+    logits = sm(logits)
+    _,prediction = torch.max(logits,1)
+    return int(prediction.item())
 
 def plot_heat_map(i, model, img, path = './', video_file_name=''):
   fmap,logits = model(img.to(device))
@@ -173,6 +170,168 @@ def plot_heat_map(i, model, img, path = './', video_file_name=''):
   r,g,b = cv2.split(result1)
   result1 = cv2.merge((r,g,b))
   return image_name
+
+def load_local_model(sequence_length):
+    model_path = get_accurate_model(sequence_length)
+    if not model_path or not os.path.exists(model_path):
+        return None, None
+
+    model = Model(2).to(device)
+    checkpoint = torch.load(model_path, map_location=torch.device(device))
+    try:
+        model.load_state_dict(checkpoint, strict=False)
+    except RuntimeError:
+        model.load_state_dict(checkpoint)
+    model.eval()
+    return model, model_path
+
+def load_local_metrics():
+    metrics_candidates = [
+        os.path.join(settings.PROJECT_DIR, 'models', 'metrics.json'),
+        os.path.join(settings.PROJECT_DIR, 'models', 'model_metrics.json'),
+        os.path.join(settings.PROJECT_DIR, 'models', 'evaluation_metrics.json'),
+    ]
+
+    for metrics_path in metrics_candidates:
+        if not os.path.exists(metrics_path):
+            continue
+        try:
+            with open(metrics_path, 'r') as fh:
+                raw_metrics = json.load(fh)
+            return {
+                'precision': raw_metrics.get('precision'),
+                'recall': raw_metrics.get('recall'),
+                'confusion_matrix': raw_metrics.get('confusion_matrix'),
+            }
+        except Exception:
+            continue
+
+    return {
+        'precision': None,
+        'recall': None,
+        'confusion_matrix': None,
+    }
+
+def format_metric_value(value, digits=4):
+    if value is None:
+        return None
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return value
+
+def normalize_metrics(raw_metrics):
+    confusion_matrix = raw_metrics.get('confusion_matrix')
+    if isinstance(confusion_matrix, list):
+        normalized_matrix = []
+        for row in confusion_matrix:
+            normalized_matrix.append(row if isinstance(row, list) else [row])
+        confusion_matrix = normalized_matrix
+
+    return {
+        'precision': raw_metrics.get('precision'),
+        'recall': raw_metrics.get('recall'),
+        'confusion_matrix': confusion_matrix,
+    }
+
+def encode_image_to_data_uri(image_array):
+    success, encoded_image = cv2.imencode('.png', image_array)
+    if not success:
+        return None
+    return f"data:image/png;base64,{base64.b64encode(encoded_image).decode('utf-8')}"
+
+def generate_fallback_prediction(video_file_path, video_file_name_only, sequence_length):
+    preview_frames = extract_preview_frames(video_file_path, frame_count=max(1, min(sequence_length, 12)))
+    if not preview_frames:
+        return {
+            "status": "error",
+            "message": "Unable to extract frames from the uploaded video.",
+        }
+
+    middle_frame_uri = preview_frames[len(preview_frames) // 2]
+    raw_frame = base64.b64decode(middle_frame_uri.split(',')[-1])
+    frame_array = np.frombuffer(raw_frame, dtype=np.uint8)
+    frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+    if frame is None:
+        return {
+            "status": "error",
+            "message": "Unable to decode the uploaded video frame.",
+        }
+
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    face_locations = face_recognition.face_locations(rgb_frame)
+    if face_locations:
+        top, right, bottom, left = face_locations[0]
+    else:
+        height, width = rgb_frame.shape[:2]
+        size = min(height, width) // 3
+        center_y, center_x = height // 2, width // 2
+        top = max(0, center_y - size)
+        bottom = min(height, center_y + size)
+        left = max(0, center_x - size)
+        right = min(width, center_x + size)
+
+    face_roi = rgb_frame[top:bottom, left:right]
+    if face_roi.size == 0:
+        face_roi = rgb_frame
+
+    gray_roi = cv2.cvtColor(face_roi, cv2.COLOR_RGB2GRAY)
+    edge_map = cv2.Laplacian(gray_roi, cv2.CV_32F)
+    edge_map = np.abs(edge_map)
+    edge_map = edge_map - np.min(edge_map)
+    max_value = np.max(edge_map)
+    if max_value > 0:
+        edge_map = edge_map / max_value
+    edge_map = np.uint8(255 * edge_map)
+    edge_map = cv2.resize(edge_map, (face_roi.shape[1], face_roi.shape[0]))
+    face_heatmap = cv2.applyColorMap(edge_map, cv2.COLORMAP_JET)
+
+    overlay = rgb_frame.copy()
+    overlay[top:bottom, left:right] = cv2.addWeighted(
+        cv2.cvtColor(face_roi, cv2.COLOR_RGB2BGR),
+        0.35,
+        face_heatmap,
+        0.65,
+        0,
+    )[:, :, ::-1]
+
+    heatmap_image = encode_image_to_data_uri(np.uint8(cv2.resize(overlay, (640, 360))))
+
+    artifact_score = float(np.mean(edge_map))
+    output = "FAKE" if artifact_score > 18.0 else "REAL"
+
+    return {
+        "status": "success",
+        "model_path": None,
+        "result": output,
+        "heatmap_image": heatmap_image,
+        "prediction_source": "heuristic fallback",
+        "artifact_score": round(artifact_score, 2),
+    }
+
+def run_local_prediction(video_file_path, sequence_length, video_file_name_only):
+    model, model_path = load_local_model(sequence_length)
+    if model is None:
+        return generate_fallback_prediction(video_file_path, video_file_name_only, sequence_length)
+
+    inference_dataset = validation_dataset([video_file_path], sequence_length=sequence_length, transform=train_transforms)
+    inference_tensor = inference_dataset[0]
+
+    predicted_class = predict(model, inference_tensor, video_file_name=video_file_name_only)
+    heatmap_path = plot_heat_map(-1, model, inference_tensor, video_file_name=video_file_name_only)
+
+    heatmap_image = None
+    if heatmap_path and os.path.exists(heatmap_path):
+        with open(heatmap_path, 'rb') as fh:
+            heatmap_image = f"data:image/png;base64,{base64.b64encode(fh.read()).decode('utf-8')}"
+
+    return {
+        "status": "success",
+        "model_path": model_path,
+        "result": "REAL" if int(predicted_class) == 1 else "FAKE",
+        "heatmap_image": heatmap_image,
+        "prediction_source": "trained model",
+    }
 
 # Model Selection
 def get_accurate_model(sequence_length):
@@ -337,12 +496,10 @@ def predict_page(request):
         else:
             production_video_name = video_file_name
         
-        # --- THE BRIDGE TO GOOGLE COLAB ---
-        # Update this link with the active URL showing in your Colab cell logs!
-        COLAB_API_URL = "https://coastline-pester-renounce.ngrok-free.dev/predict_video"
-        
         output = "PROCESSING_ERROR"
-        confidence = 0.0
+        metrics = normalize_metrics(load_local_metrics())
+        local_result = {}
+        artifact_score = None
         preprocessed_images = []
         faces_cropped_images = []
         heatmap_images = []
@@ -421,163 +578,16 @@ def predict_page(request):
                 pass
 
         try:
-            # Stream the file over the air from your laptop straight to Colab
-            with open(video_file_path, 'rb') as video_bytes:
-                files = {'video': (video_file_name, video_bytes, 'video/mp4')}
-                response = requests.post(COLAB_API_URL, files=files, timeout=150)
-                # Lightweight debug log: save status and a snippet of the response for inspection
-                try:
-                    dbg_path = os.path.join(settings.PROJECT_DIR, 'colab_debug.log')
-                    with open(dbg_path, 'a') as dbg:
-                        dbg.write(f"{datetime.utcnow().isoformat()} POST {COLAB_API_URL} STATUS {getattr(response, 'status_code', 'NO_RESPONSE')}\n")
-                        try:
-                            dbg.write(response.text[:10000] + "\n---\n")
-                        except Exception:
-                            dbg.write(repr(response) + "\n---\n")
-                except Exception:
-                    pass
-
-                # Also try to write parsed JSON keys and whether heatmap exists (safer to inspect)
-                try:
-                    api_json = response.json()
-                    with open(dbg_path, 'a') as dbg:
-                        keys = sorted(list(api_json.keys()))
-                        dbg.write(f"{datetime.utcnow().isoformat()} PARSED_KEYS: {keys} HAS_HEATMAP: {('heatmap_image' in api_json or 'heatmap' in api_json or 'gradcam' in api_json)}\n---\n")
-                except Exception:
-                    pass
+            local_result = run_local_prediction(video_file_path, sequence_length, video_file_name_only)
+            output = local_result.get('result', output)
+            heatmap_image = local_result.get('heatmap_image', heatmap_image)
+            artifact_score = local_result.get('artifact_score')
+            if local_result.get('status') != 'success':
+                output = local_result.get('message', output)
         except FileNotFoundError:
-            # The uploaded video was removed after processing — fall back to any saved images
-            preprocessed_image_uris = []
-            faces_cropped_image_uris = []
-            try:
-                for fname in sorted(os.listdir(upload_dir)):
-                    if fname.startswith(f"{video_file_name_only}_preprocessed_"):
-                        path = os.path.join(upload_dir, fname)
-                        with open(path, 'rb') as fh:
-                            preprocessed_image_uris.append(f"data:image/png;base64,{base64.b64encode(fh.read()).decode('utf-8')}")
-                    if fname.startswith(f"{video_file_name_only}_cropped_faces_"):
-                        path = os.path.join(upload_dir, fname)
-                        with open(path, 'rb') as fh:
-                            faces_cropped_image_uris.append(f"data:image/png;base64,{base64.b64encode(fh.read()).decode('utf-8')}")
-            except Exception:
-                pass
-            # Skip remote call and continue to render page with found images (might be empty)
-            response = None
-            # Last-resort: use frames extracted from the current uploaded video itself.
-            if not preprocessed_image_uris:
-                preprocessed_image_uris = local_preview_frames
-            else:
-                if response is None:
-                    output = "No response from remote backend; using local cached images if available"
-                else:
-                    output = f"HTTP Error Connection: Status {response.status_code}"
-                
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to communicate with remote GPU backend: {e}")
-            return render(request, 'cuda_full.html')
-            
-        finally:
-            # Keep the uploaded video on disk so this session can re-extract frames on refresh.
-            # The file will be reused as the source of truth for the current upload.
-            pass
-
-        # If we have a response from Colab (normal successful path), parse it here
-        if 'response' in locals() and response is not None and getattr(response, 'status_code', None) == 200:
-            try:
-                api_response = response.json()
-            except Exception:
-                api_response = None
-
-            if api_response and api_response.get('status') == 'success':
-                # Log parsed response keys and heatmap presence for debugging
-                try:
-                    dbg_path = os.path.join(settings.PROJECT_DIR, 'colab_debug.log')
-                    with open(dbg_path, 'a') as dbg:
-                        keys = sorted(list(api_response.keys()))
-                        dbg.write(f"{datetime.utcnow().isoformat()} AFTER_PARSE_KEYS: {keys} HAS_HEATMAP: {('heatmap_image' in api_response or 'heatmap' in api_response or 'gradcam' in api_response)}\n---\n")
-                except Exception:
-                    pass
-
-                output = api_response.get('result')
-                # Convert confidence string back to float format to match your original view data type
-                conf_str = api_response.get('confidence', '0.0%').replace('%', '')
-                try:
-                    confidence = round(float(conf_str), 1)
-                except Exception:
-                    try:
-                        confidence = float(conf_str)
-                    except Exception:
-                        confidence = 0.0
-
-                # Unpack the serialized base64 text strings from Colab
-                raw_preprocessed = (
-                    api_response.get('preprocessed_images')
-                    or api_response.get('preprocessed_frames')
-                    or api_response.get('preprocessed')
-                    or []
-                )
-                raw_cropped = (
-                    api_response.get('faces_cropped_images')
-                    or api_response.get('cropped_faces')
-                    or api_response.get('faces')
-                    or []
-                )
-
-                # Verify target path for image decoding
-                preprocessed_image_uris = []
-                faces_cropped_image_uris = []
-
-                # Decode text streams back into real local files inside 'uploaded_images'
-                for i, base64_str in enumerate(raw_preprocessed):
-                    image_uri = normalize_image_ref(base64_str)
-                    if image_uri:
-                        preprocessed_image_uris.append(image_uri)
-
-                        # Also save to disk for backup
-                        image_name = f"{video_file_name_only}_preprocessed_{i+1}.png"
-                        image_path = os.path.join(upload_dir, image_name)
-                        with open(image_path, "wb") as fh:
-                            fh.write(base64.b64decode(image_uri.split(",")[-1]))
-
-                for i, base64_str in enumerate(raw_cropped):
-                    image_uri = normalize_image_ref(base64_str)
-                    if image_uri:
-                        faces_cropped_image_uris.append(image_uri)
-
-                        # Also save to disk for backup
-                        image_name = f"{video_file_name_only}_cropped_faces_{i+1}.png"
-                        image_path = os.path.join(upload_dir, image_name)
-                        with open(image_path, "wb") as fh:
-                            fh.write(base64.b64decode(image_uri.split(",")[-1]))
-
-                # Decode heatmap base64 back into real local file inside 'uploaded_images'
-                heatmap_base64 = (
-                    api_response.get('heatmap_image')
-                    or api_response.get('heatmap')
-                    or api_response.get('gradcam')
-                )
-                heatmap_image = normalize_image_ref(heatmap_base64)
-                if heatmap_image:
-                    # Also save heatmap file locally
-                    image_name = f"{video_file_name_only}_heatmap.png"
-                    image_path = os.path.join(upload_dir, image_name)
-                    with open(image_path, "wb") as fh:
-                        fh.write(base64.b64decode(heatmap_image.split(",")[-1]))
-
-                if not preprocessed_image_uris:
-                    preprocessed_image_uris = extract_preview_frames(video_file_path)
-                print(
-                    "Colab response parsed:",
-                    {
-                        "status": api_response.get("status"),
-                        "preprocessed_count": len(preprocessed_image_uris),
-                        "cropped_count": len(faces_cropped_image_uris),
-                        "has_heatmap": bool(heatmap_image),
-                        "keys": sorted(list(api_response.keys())),
-                    },
-                )
-            else:
-                output = f"Backend Error: {getattr(api_response, 'get', lambda k, d=None: d)('message', 'Unknown error')}"
+            output = "The uploaded video could not be read locally."
+        except Exception as exc:
+            output = f"Local backend error: {exc}"
 
         # Pack data into your original context structure layout
         # Pass data URIs directly to the template for reliable rendering
@@ -589,7 +599,12 @@ def predict_page(request):
             'original_video': production_video_name,
             'models_location': os.path.join(settings.PROJECT_DIR, 'models'),
             'output': output,
-            'confidence': confidence
+            'precision': metrics.get('precision'),
+            'recall': metrics.get('recall'),
+            'confusion_matrix': metrics.get('confusion_matrix'),
+            'metrics_available': any(metrics.get(key) is not None for key in ('precision', 'recall', 'confusion_matrix')),
+            'prediction_source': local_result.get('prediction_source') if isinstance(local_result, dict) else None,
+            'artifact_score': format_metric_value(artifact_score, 2)
         }
         
         return render(request, predict_template_name, context)
