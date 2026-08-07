@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Django / local data
+Application/Django Application/.venv/
+Application/Django Application/db.sqlite3
+Application/uploaded_images/
+Application/uploaded_videos/
+Application/Django Application/uploaded_images/
+Application/Django Application/uploaded_videos/
+
+# Notebook checkpoints
+**/.ipynb_checkpoints/
+
+# OS files
+.DS_Store

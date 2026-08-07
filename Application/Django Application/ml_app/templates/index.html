@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{%load static%}
+{%block content%}
+<div class="bg" >
+<a class="home-overlay-link" href="{% url 'ml_app:home' %}">Home</a>
+<div class="container">
+    <h1 class="main-heading">Deepfake Detection</h1>
+    
+    <div class="row align-items-center justify-content-center">
+        <div class="col-12 my-auto">
+            <div class="width-400">
+                <div class="preview-visualizer mx-auto mb-3">
+                    <video width="100%" controls id="videos">
+                        <source src="" id="video_source">
+                        Your browser does not support HTML5 video.
+                    </video>
+                </div>
+                <form class="form text-center mt-3" method="POST" enctype="multipart/form-data" name="video-upload" id="video-upload">
+                    {%csrf_token%}
+                    {{ form.sequence_length }}
+                    <div class="form-group file-upload-group">
+                        <label>{{form.upload_video_file.widget}}</label>
+                        {{form.upload_video_file}}
+                        <!-- <input type="file" id="{{form.upload_video_file.id_for_label}}" name="{{form.upload_video_file.name}}" /> -->
+                        {%if form.upload_video_file.errors%}
+                        {%for each_error in form.upload_video_file.errors%}
+                        <div class="alert alert-danger mt-1 {{form.upload_video_file.id_for_label}}">
+                            {{each_error}}
+                        </div>
+                        {%endfor%}
+                        {%endif%}
+                    </div>
+                    <button id="videoUpload" type="submit" name="submit" class="btn btn-success mt-3 btn-block">Upload</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+{%endblock%}
+{%block js_cripts%}
+<script src="{%static 'js/script.js'%}"></script>
+{%endblock%}

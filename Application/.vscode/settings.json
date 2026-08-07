@@ -1,0 +1,13 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "pkill": true,
+        "/^cd \"/Users/rutvika/Projects/Deepfake detection/Deepfake/Django Application\" && python manage\\.py runserver$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \"/Users/rutvika/Projects/Deepfake detection/Deepfake/Django Application\" && python3 << 'EOF'\nfrom PIL import Image, ImageDraw\n\n# Load the image\nimg_path = \"static/images/thumpdown\\.png\"\nimg = Image\\.open\\(img_path\\)\\.convert\\(\"RGBA\"\\)\n\n# Get dimensions\nsize = img\\.size\nmax_dim = max\\(size\\)\n\n# Create a square canvas\nnew_size = \\(max_dim, max_dim\\)\nnew_img = Image\\.new\\(\"RGBA\", new_size, \\(0, 0, 0, 0\\)\\)\n\n# Paste original image centered\noffset = \\(\\(max_dim - size\\[0\\]\\) // 2, \\(max_dim - size\\[1\\]\\) // 2\\)\nnew_img\\.paste\\(img, offset, img\\)\n\n# Create circular mask with curved gradient effect\nmask = Image\\.new\\(\"L\", new_size, 0\\)\nmask_draw = ImageDraw\\.Draw\\(mask\\)\n\n# Draw a circular gradient with smooth curves\nradius = max_dim // 2\nfor i in range\\(radius, 0, -1\\):\n    # Smooth curve using cosine for better visual effect\n    import math\n    progress = i / radius\n    alpha = int\\(255 \\* \\(1 - progress \\*\\* 1\\.5\\)\\)  # Curve power\n    mask_draw\\.ellipse\\(\n        \\[\\(radius - i, radius - i\\), \n         \\(radius \\+ i, radius \\+ i\\)\\],\n        fill=alpha\n    \\)\n\n# Apply the mask to create circular shape with curved edges\nnew_img\\.putalpha\\(mask\\)\n\n# Save back\nnew_img\\.save\\(img_path\\)\nprint\\(f\"✅ Image processed successfully!\"\\)\nprint\\(f\"Original size: \\{size\\} → New size: \\{new_size\\}\"\\)\nprint\\(f\"Applied circular gradient mask with curves\"\\)\nEOF\n$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
